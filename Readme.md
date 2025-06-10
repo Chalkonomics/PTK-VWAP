@@ -1,10 +1,7 @@
-# PTK indicators
-
-
 
 # P.T.K - VWAP Indicator Analysis
 
-
+![Screenshot](images/alerts_grab.png)
 
 ## Overview
 Indicator for VWAP based trading system with multiple bands, previous value area tracking, and a simple/sequence based alerting system for different market conditions.
@@ -41,7 +38,7 @@ Indicator for VWAP based trading system with multiple bands, previous value area
 
 ## Alerting System
 
-Multi-tier alerting system with both simple and sequence-based alerts.
+Multi tier alerting system with both simple and sequence based alerts.
 
 ### Simple Alerts (Single Condition)
 
@@ -83,7 +80,7 @@ Multi-tier alerting system with both simple and sequence-based alerts.
 ### Alert Features
 
 #### Optimistic Alerting
-- **Buffer Zone**: Adds a small buffer to alert levels to avoid being "front-run"
+- **Buffer Zone**: Adds a small buffer to alert levels to avoid being "front run"
 - **Calculation**: Uses half the distance between DVAH and buffer high as buffer
 - **Direction-Based**: Adds buffer for longs, subtracts for shorts
 
