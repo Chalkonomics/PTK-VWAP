@@ -1,0 +1,561 @@
+//@version=5
+indicator(title="P.T.K - VWAP", shorttitle="P.T.K - VWAP", overlay=true)
+
+// Setting const
+ALERT_SYSTEM_SETTINGS = "Alert System Settings"
+BANDS_GROUP = "Bands Settings"
+PREVIOUS_VALUE_GROUP = "Previous Value"
+CALC_MODE_TOOLTIP = "Determines the units used to calculate the distance of the bands. When 'Percentage' is selected, a multiplier of 1 means 1%."
+STYLES = "Styles"
+
+//
+// These general VWAP settings from package / no touch 
+// 
+hideonDWM = input(false, title="Hide VWAP on 1D or Above", group="VWAP Settings", display = display.data_window)
+var anchor = input.string(defval = "Session", title="Anchor Period",
+ options=["Session", "Week", "Month", "Quarter", "Year", "Decade", "Century", "Earnings", "Dividends", "Splits"], group="VWAP Settings")
+src = input(title = "Source", defval = hlc3, group="VWAP Settings", display = display.data_window)
+offset = input.int(0, title="Offset", group="VWAP Settings", minval=0, display = display.data_window)
+
+calcModeInput = input.string("Standard Deviation", "Bands Calculation Mode", options = ["Standard Deviation", "Percentage"], group = BANDS_GROUP, tooltip = CALC_MODE_TOOLTIP, display = display.data_window)
+
+// Display settings
+// theme = input.string(defval = "Blue/Beige", title="Theme", options=["Blue/Beige", "Grey/Pink", "Blue"], group=STYLES)
+// pvaTheme = input.string(defval = "Full Width", title="PVA Line Style", options=["Full Width", "Part Width", "Box"], group=STYLES)
+
+// Previous Values
+isShowingPreviousValue = input.bool(true, title="Show PVA", group = PREVIOUS_VALUE_GROUP)
+
+// Alert Settings
+isOptimisticAlerting = input(true, title = "Alert optimistically", group = ALERT_SYSTEM_SETTINGS)
+isShowingVisualTriggers = input.bool(true, title = "Show Alert Triggers", group = ALERT_SYSTEM_SETTINGS)
+
+//
+// Colors
+//
+
+// Developing Value
+//
+
+// Lines
+color_line_DVA = color.new(#5499c3, 100)
+color_line_DVA_1 = color.new(#5499c3, 57)
+color_line_DVA_2 = color.new(#ffffff, 70)
+color_line_DVA_buffer = color.new(#ffffff, 100)
+color_line_DVA_mid = color.new(#5499c3, 100)
+
+// Fill
+color_fill_DVA = color.new(#054c76, 67) 
+color_fill_DVA_buffer = color.new(#ffffff, 100)
+color_fill_DVA_mid = color.new(#ffffff,100)
+
+band_one_fill = color.new(#f06292, 94)
+band_two_fill = color.new(#f48fb1, 88)
+band_negOne_fill = color.new(#00bcd4, 94)
+band_negTwo_fill = color.new(#00bcd4, 86)
+
+
+// Previous Value
+//
+
+color_line_pva = color.new(#e6e9ad, 0)
+
+// PVA Lines
+color_line_prev_buffer = color.new(#998d5d, 100)
+color_line_prev_mid = color.new(#998d5d, 100)
+color_line_prev_vwap = color.new(#5499c3, 0)
+
+
+// PVA fill 
+color_fill_prev_value = color.new(#336a8c, 87)
+color_fill_pre_mid = color.new(#ffffff, 100)
+color_fill_prev_buffer = color.new(#998d5d, 100)
+
+
+
+//
+// Band settings 
+//
+
+bandSetting = input.string("Band", "Band Display", options = ["Band", "Fill"], group = BANDS_GROUP)
+isBandsHidden = input.bool(false, title="Hide Bands", group = BANDS_GROUP)
+isShowPlusOne = input(true, title="Show +1 band", group=BANDS_GROUP)
+isShowPlusTwo = input(true, title="Show +2 band", group=BANDS_GROUP)
+isShowPlusThree = ""
+isShowMinusOne = input(true, title="Show -1 band", group=BANDS_GROUP)
+isShowMinusTwo = input(true, title="Show -2 band", group=BANDS_GROUP)
+
+isBandFill() => bandSetting == "Fill"
+
+showDVA = input(true, title = "", group = BANDS_GROUP, inline = "band_dva", display = display.data_window)
+bandDVA = input.float(1.0, title = "Value Area", group = BANDS_GROUP, inline = "band_dva", step = 0.5, minval=0, display = display.data_window)
+
+showBuffer = input(false, title = "", group = BANDS_GROUP, inline = "band_buffer", display = display.data_window)
+bandBuffer = input.float(0.8, title = "Buffer", group = BANDS_GROUP, inline = "band_buffer", step = 0.5, minval=0, display = display.data_window)
+
+showMid = input(false, title = "", group = BANDS_GROUP, inline = "band_mid", display = display.data_window)
+bandMid = input.float(0.5, title = "Value Area mid", group = BANDS_GROUP, inline = "band_mid", step = 0.5, minval=0, display = display.data_window)
+
+showStd1 = input(true, title = "", group = BANDS_GROUP, inline = "band_std1", display = display.data_window)
+bandStd1 = input.float(1.5, title = "Bands +/- 1", group = BANDS_GROUP, inline = "band_std1", step = 0.5, minval=0, display = display.data_window)
+
+showStd2 = input(true, title = "", group = BANDS_GROUP, inline = "band_std2", display = display.data_window)
+bandStd2 = input.float(2.0, title = "Bands +/- 2", group = BANDS_GROUP, inline = "band_std2", step = 0.5, minval=0, display = display.data_window)
+
+showStd3 = input(true, title = "", group = BANDS_GROUP, inline = "band_std2", display = display.data_window)
+bandStd3 = input.float(3.0, title = "Bands +/- 3", group = BANDS_GROUP, inline = "band_std3", step = 0.5, minval=0, display = display.data_window)
+
+// 
+//  Unused code 
+// 
+
+calcVWAP(tf) =>
+    [_vwap, _stdevUpper] = request.security(syminfo.tickerid, tf, [ta.vwap(src), ta.vwap(src, 1)])
+    stdevAbs = _stdevUpper - _vwap
+    bandBasis = calcModeInput == "Standard Deviation" ? stdevAbs : _vwap * 0.01
+    dvahBand = _vwap + bandBasis * bandDVA
+    dvalBand = _vwap - bandBasis * bandDVA
+    [_vwap, dvahBand, dvalBand]
+
+// Calculate for different timeframes
+[vwapDay, dvahDay, dvalDay] = calcVWAP("D")
+[vwapWeek, dvahWeek, dvalWeek] = calcVWAP("W")
+[vwapMonth, dvahMonth, dvalMonth] = calcVWAP("M")
+[vwapQuarter, dvahQuarter, dvalQuarter] = calcVWAP("3M")
+
+// Store previous values
+var float prevVwapDay = na
+var float prevDvahDay = na
+var float prevDvalDay = na
+var float prevVwapWeek = na
+var float prevDvahWeek = na
+var float prevDvalWeek = na
+var float prevVwapMonth = na
+var float prevDvahMonth = na
+var float prevDvalMonth = na
+var float prevVwapQuarter = na
+var float prevDvahQuarter = na
+var float prevDvalQuarter = na
+
+//
+// Unused code end
+//
+
+
+// Plot previous value area  
+plotPrevVWAP(value, start, c) =>
+    var line prevVWAPLine = na
+    
+    if not na(start) and not na(value)
+        if na(prevVWAPLine)
+            prevVWAPLine := line.new(x1=start, y1=value, x2=bar_index + 1, y2=value, color= c, width=2, style = line.style_solid, extend=extend.right)
+        else
+            line.set_x1(prevVWAPLine, start)
+            line.set_y1(prevVWAPLine, value)
+            line.set_y2(prevVWAPLine, value)
+        line.set_x2(prevVWAPLine, bar_index + 1)
+    else if not na(prevVWAPLine)
+        line.delete(prevVWAPLine)
+        prevVWAPLine := na
+    prevVWAPLine
+
+if barstate.islast and ta.cum(volume) == 0
+    runtime.error("No volume is provided by the data vendor.")
+
+new_earnings = request.earnings(syminfo.tickerid, earnings.actual, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+new_dividends = request.dividends(syminfo.tickerid, dividends.gross, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+new_split = request.splits(syminfo.tickerid, splits.denominator, barmerge.gaps_on, barmerge.lookahead_on, ignore_invalid_symbol=true)
+
+
+isNewPeriod = switch anchor
+	"Earnings"  => not na(new_earnings)
+	"Dividends" => not na(new_dividends)
+	"Splits"    => not na(new_split)
+	"Session"   => timeframe.change("D")
+	"Week"      => timeframe.change("W")
+	"Month"     => timeframe.change("M")
+	"Quarter"   => timeframe.change("3M")
+	"Year"      => timeframe.change("12M")
+	"Decade"    => timeframe.change("12M") and year % 10 == 0
+	"Century"   => timeframe.change("12M") and year % 100 == 0
+	=> false
+
+isEsdAnchor = anchor == "Earnings" or anchor == "Dividends" or anchor == "Splits"
+if na(src[1]) and not isEsdAnchor
+	isNewPeriod := true
+
+float vwapValue = na
+float dvahBandValue = na
+float dvalBandValue = na
+float bufferHighValue = na
+float bufferLowValue = na
+float dvaMidHighValue = na
+float dvaMidLowValue = na
+float dvaHighStd1Value = na
+float dvaLowStd1Value = na
+float dvaHighStd2Value = na
+float dvaLowStd2Value = na
+
+var float prevVWAP = na
+var float prevVWAPValue = na 
+var float prevDVAH = na
+var float prevDVAHValue = na
+var float prevDVAL = na
+var float prevDVALValue = na
+var float prevDvaBufferHigh = na 
+var float prevDVABufferLow = na
+var float prevDVAMidHigh = na
+var float prevDVAMidLow = na
+var int prevPeriodStart = na
+
+
+
+// Current VWAP 
+if not (hideonDWM and timeframe.isdwm)
+    [_vwap, _stdevUpper, _] = ta.vwap(src, isNewPeriod, 1)
+	vwapValue := _vwap
+    stdevAbs = _stdevUpper - _vwap
+	bandBasis = calcModeInput == "Standard Deviation" ? stdevAbs : _vwap * 0.01
+	dvahBandValue := _vwap + bandBasis * bandDVA
+	dvalBandValue := _vwap - bandBasis * bandDVA
+	dvaMidHighValue := _vwap + bandBasis * bandMid
+	dvaMidLowValue := _vwap - bandBasis * bandMid
+	bufferHighValue := _vwap + bandBasis * bandBuffer
+	bufferLowValue := _vwap - bandBasis * bandBuffer 
+	dvaHighStd1Value := _vwap + bandBasis * bandStd1
+	dvaLowStd1Value := _vwap - bandBasis * bandStd1
+	dvaHighStd2Value := _vwap + bandBasis * bandStd2
+	dvaLowStd2Value := _vwap - bandBasis * bandStd2
+
+if isNewPeriod
+    prevVWAP := vwapValue[1]
+	prevVWAPValue := prevVWAP
+
+	prevDVAH := dvahBandValue[1]
+    prevDVAHValue := prevDVAH
+
+    prevDVAL := dvalBandValue[1]
+    prevDVALValue := prevDVAL
+
+	prevDvaBufferHigh := bufferHighValue[1]
+	prevDVABufferLow := bufferLowValue[1]
+	prevDVAMidHigh := dvaMidHighValue[1]
+	prevDVAMidLow := dvaMidLowValue[1]
+    prevPeriodStart := bar_index[1]
+
+
+//
+// Previous Value Area
+//
+
+pVAH = plot(prevDVAH, "PVA", color=color_fill_prev_value, linewidth=1, display = isShowingPreviousValue ? display.all : display.none)
+pVAL = plot(prevDVAL, "PVA", color=color_fill_prev_value, linewidth=1, display = isShowingPreviousValue ? display.all : display.none)
+fill(pVAH, pVAL, title="PVA Fill Area", color=color_fill_prev_value, display = isShowingPreviousValue ? display.all : display.none)
+
+pValMidHigh = plot(prevDVAMidHigh, "PVA Mid", color=#2195f300, linewidth=1, display = isShowingPreviousValue ? display.all : display.none)
+pValMidLow = plot(prevDVAMidLow, "PVA Mid", color=#2195f300, linewidth=1, display = isShowingPreviousValue ? display.all : display.none)
+fill(pValMidHigh, pValMidLow, title="PVA Mid Fill Area", color=color_fill_pre_mid, display = isShowingPreviousValue ? display.all : display.none)
+
+pValBufferHigh = plot(prevDvaBufferHigh, "PVA Buffer High", color=color_line_prev_buffer, linewidth=1, display = isShowingPreviousValue ? display.all : display.none)
+pValBufferLow = plot(prevDVABufferLow, "PVA Buffer Low", color=color_line_prev_buffer, linewidth=1, display = isShowingPreviousValue ? display.all : display.none)
+fill(pValBufferHigh, pValBufferLow, title="PVA Buffer Fill Area", color=color_fill_prev_buffer, display = isShowingPreviousValue ? display.all : display.none)
+
+plot(prevVWAPValue, "Prev VWAP", color = color_line_prev_vwap, style=plot.style_cross)
+
+
+//
+// Developing Value Area
+//
+
+plot(vwapValue, title="VWAP", color=color.new(#f48fb1, 30), style=plot.style_line, offset=offset)
+
+canShowDVA = true 
+dvah = plot(dvahBandValue, title="DVAH", color=color_line_DVA, linewidth = 2, offset=offset)
+dval = plot(dvalBandValue, title="DVAL", color=color_line_DVA, linewidth = 2, offset=offset)
+fill(dvah, dval, title="DVA Fill Area", color=color_fill_DVA)
+
+canShowBuffer = false
+bufferHigh = plot(bufferHighValue, title="DVA Buffer High", color=color_line_DVA_buffer, linewidth = 1, offset=offset, display = canShowBuffer ? display.all : display.none)
+bufferLow = plot(bufferLowValue, title="DVA Buffer Low", color=color_line_DVA_buffer, linewidth = 1, offset=offset, display = canShowBuffer ? display.all : display.none)
+fill(bufferHigh, bufferLow, title="Buffer Fill Area", color=color_fill_DVA_buffer, display = canShowBuffer ? display.all : display.none)
+
+midHigh = plot(dvaMidHighValue, title="DVA Mid High", color=color_line_DVA_mid, offset=offset, display = showMid ? display.all : display.none)
+midLow = plot(dvaMidLowValue, title="DVA Mid Low", color=color_line_DVA_mid, offset=offset, display = showMid ? display.all : display.none)
+fill(midHigh, midLow, title="DVA Mid Fill", color=color_fill_DVA_mid, display = showMid ? display.all : display.none)
+
+
+
+dvaStd1High = plot(dvaHighStd1Value, title="DVA +1", color=color_line_DVA_1, offset=offset, display = isShowPlusOne and not isBandFill() and not isBandsHidden ? display.all : display.none, style = plot.style_cross)
+fill(dvah, dvaStd1High, title="DVA+1", color = band_one_fill, display = isShowPlusOne and isBandFill() and not isBandsHidden  ? display.all : display.none)
+
+dvaStd2High = plot(dvaHighStd2Value, title="DVA +2", color=color_line_DVA_2, linewidth = 1, offset=offset, display = isShowPlusOne and not isBandFill() and not isBandsHidden ? display.all : display.none, style = plot.style_cross)
+fill(dvaStd1High, dvaStd2High, title="DVA+2", color = band_two_fill, display = isShowPlusTwo and isBandFill() and not isBandsHidden ? display.all : display.none)
+
+dvaStd1Low = plot(dvaLowStd1Value, title="DVA -1", color=color_line_DVA_1, offset=offset, display = isShowMinusOne and not isBandFill() and not isBandsHidden ? display.all : display.none, style = plot.style_cross)
+fill(dval, dvaStd1Low, title = "DVA - 1", color = band_negOne_fill, display = isShowMinusOne and isBandFill() and not isBandsHidden ? display.all : display.none)
+
+dvaStd2Low = plot(dvaLowStd2Value, title="DVA -2", color=color_line_DVA_2, linewidth = 1, offset=offset, display = isShowMinusTwo and not isBandFill() and not isBandsHidden ? display.all : display.none, style = plot.style_cross)
+fill(dvaStd1Low, dvaStd2Low, title = "DVA - 2", color = band_negTwo_fill, display = isShowMinusOne and isBandFill() and not isBandsHidden ? display.all : display.none)
+
+
+
+//
+// Alerts
+//
+
+type SequenceAlertState
+    int currentStep = 0
+    array<bool> steps
+
+type CustomAlertState
+    bool isTriggered
+    SequenceAlertState sequenceState
+
+type CustomAlertDefinition
+    string id
+    bool isSequence
+    int sequenceSteps
+
+const string LONG = "LONG"
+const string SHORT = "SHORT"
+
+// DVA Simple Alerts 
+const string EXEC_FADE_LOW = "EXEC_FADE_LOW"
+const string EXEC_FADE_HIGH = "EXEC_FADE_HIGH"
+const string EXEC_TOUCH_VVWAP = "EXEC_TOUCH_VVWAP"
+const string EXEC_PB_TO_VALUE = "EXEC_PB_TO_VALUE"
+
+// DVA Sequenced alerts 
+const string FAILED_AUCTION_LOWER  = "FAILED_AUCTION_LOWER "
+const string FAILED_AUCTION_HIGHER = "FAILED_AUCTION_HIGHER"
+const string IMBALANCED_UP = "IMBALANCED_UP"
+const string IMBALANCED_DOWN = "IMBALANCED_DOWN"
+
+// PVA Simple alerts
+const string PVA_LOW_TEST = "PVA_LOW_TEST"
+const string PVA_HIGH_TEST = "PVA_HIGH_TEST"
+const string PVA_VWAP_TEST = "PVA_VWAP_TEST"
+
+// PVA Complex Alerts
+const string PVA_BPB = "PVA_BPB" 
+
+method new(int stepCount) =>
+    SequenceAlertState.new(0, array.new<bool>(stepCount, false))
+
+var customAlerts = array.new<CustomAlertDefinition>()
+var customAlertStates = array.new<CustomAlertState>()
+
+initializeCustomAlerts(CustomAlertDefinition[] alerts) =>
+    if array.size(customAlertStates) != array.size(alerts)
+        array.clear(customAlertStates)
+        for i = 0 to array.size(alerts) - 1
+            alertEntry = array.get(alerts, i)
+            sequenceState = alertEntry.isSequence ? SequenceAlertState.new(alertEntry.sequenceSteps) : na
+            array.push(customAlertStates, CustomAlertState.new(false, sequenceState))
+
+
+
+if barstate.isfirst
+
+    // DVA Simple Alerts
+    array.push(customAlerts, CustomAlertDefinition.new(EXEC_FADE_LOW, false, 1)) 
+    array.push(customAlerts, CustomAlertDefinition.new(EXEC_TOUCH_VVWAP, false, 1)) 
+    array.push(customAlerts, CustomAlertDefinition.new(EXEC_FADE_HIGH, false, 1)) 
+  
+    // DVA Complex Alerts
+    array.push(customAlerts, CustomAlertDefinition.new(FAILED_AUCTION_LOWER , true, 3)) 
+    array.push(customAlerts, CustomAlertDefinition.new(IMBALANCED_UP, true, 2)) 
+    array.push(customAlerts, CustomAlertDefinition.new(FAILED_AUCTION_HIGHER, true, 2))    
+    array.push(customAlerts, CustomAlertDefinition.new(IMBALANCED_DOWN, true, 2))
+
+    // PVA Simple Alerts
+    array.push(customAlerts, CustomAlertDefinition.new(PVA_LOW_TEST, false, 1)) 
+    array.push(customAlerts, CustomAlertDefinition.new(PVA_HIGH_TEST, false, 1)) 
+    array.push(customAlerts, CustomAlertDefinition.new(PVA_VWAP_TEST, false, 1))
+
+    // PVA Complex Alerts
+    array.push(customAlerts, CustomAlertDefinition.new(PVA_BPB, true, 2)) 
+    
+
+
+// Helpers 
+isInValue(float px) => px < dvahBandValue and px > dvalBandValue 
+isInPreviousValue() => close > prevDVALValue and close < prevDVAHValue
+isBelowPreviousValue() => close < prevDVALValue
+
+hasClosedAbove(float v) => open > v and close > v and high > v and low > v
+hasPreviousCandleClosedAbove(float v) => open[1] > v and close[1] > v and high[1] > v and low[1] > v
+hasClosedBelow(float v) => open < v and close < v and high < v and low < v
+// hasCrossedValueUp(float v) => close > vwapValue and close[1] <= vwapValue
+// hasCrossedValueDown(float v) => close  < vwapValue and close[1] >= vwapValue
+hasCrossedValueUp(float v) => high > v and close[1] <= v
+hasCrossedValueDown(float v) => low  < v and close[1] >= v
+
+// hasCrossedVWAP() => hasCrossedVWAPUp() or hasCrossedVWAPDown()
+
+hasCrossed(float v) => hasCrossedValueUp(v) or hasCrossedValueDown(v)
+
+getCandlePointForLow() => isInPreviousValue() ? low : high
+    
+
+// by adding buffersize hopefully can avoid getting front run 
+// on alert levels.
+// isOptimisticAlerting bool on setting panel 
+// @float lvl - Level alert being set against 
+// @string direction - add/sub to level based on direction passed in
+getFinalLevel(float lvl, string direction) => 
+    if not isOptimisticAlerting
+        lvl
+    // Buffer zone .2 of std+1 of whatever vwap anchor selected      
+    calc = (dvahBandValue - bufferHighValue) / 2          
+    direction == LONG ? lvl + calc : lvl - calc
+
+// @debug: change bg color on trigger / only uncomment when need
+// Based on number of steps of alert testing, will have to fiddle around 
+// with coloring. I personally only care about the trigger step
+setCandleBg(string alertId, int sequenceNum) => 
+    switch sequenceNum
+        0 => na 
+        1 => na
+        2 => na
+        3 => color.new(color.blue, 20)
+        => na
+
+var color bgColor = na
+var isDebugMode = false
+
+// Sequenced alert steps
+// If you have alerts that should only trigger after n conditions then 
+// add steps required here in sep function. 
+
+// px auctions outside value and pulls back to dvah s
+imbalanced_long(SequenceAlertState state) => 
+    if state.currentStep == 0 and hasClosedAbove(dvahBandValue)
+        state.currentStep := 1
+    else if state.currentStep == 1 and low < (isOptimisticAlerting ? getFinalLevel(dvahBandValue, LONG) : dvahBandValue)
+        state.currentStep := 2
+
+imbalanced_short(SequenceAlertState state) =>
+    if state.currentStep == 0 and hasClosedBelow(dvalBandValue)
+        state.currentStep := 1
+    else if state.currentStep == 1 and high > dvalBandValue
+        state.currentStep := 2
+
+// px auctions below value, fails to hold returning back inside value and pulls back to dval
+failed_auction_lower(SequenceAlertState state) => 
+    if state.currentStep == 0 and hasClosedBelow(dvalBandValue)
+        state.currentStep := 1
+    if state.currentStep == 1 and hasClosedAbove(bufferLowValue)
+        state.currentStep := 2
+    if state.currentStep == 2 and low < bufferLowValue
+        state.currentStep := 3
+
+// px auctions above value, fails to hold returning back inside value and pulls back to dvah
+failed_auction_higher(SequenceAlertState state) => 
+    if state.currentStep == 0 and hasClosedBelow(bufferHighValue)
+        state.currentStep := 1
+    if state.currentStep  == 1 and high > (isOptimisticAlerting ? getFinalLevel(dvahBandValue, SHORT) : dvahBandValue)
+        state.currentStep := 2
+
+pva_breakout_pullback(SequenceAlertState state) => 
+    if state.currentStep == 0 and hasClosedAbove(prevDVAHValue)
+        state.currentStep := 1
+    else if state.currentStep == 1 and low < prevDVAHValue
+        state.currentStep := 2
+
+//
+// Helper function
+//
+
+
+var alertTriggers = array.new_bool(array.size(customAlerts), false)
+initializeCustomAlerts(customAlerts)
+
+if not na(dvahBandValue) and not na(dvalBandValue) and not na(vwapValue) and not na(bufferHighValue)
+    bgColor := na
+
+    for i = 0 to array.size(customAlerts) - 1
+        customAlert = array.get(customAlerts, i)
+        state = array.get(customAlertStates, i)  
+
+        // Add your simple alerts here, ones that have single condition to meet 
+        if not customAlert.isSequence
+            state.isTriggered := switch customAlert.id
+                EXEC_FADE_LOW => low < (isOptimisticAlerting ? bufferLowValue : dvalBandValue)       // Tested
+                EXEC_FADE_HIGH => high > (isOptimisticAlerting ? bufferHighValue : dvalBandValue)    // Tested
+                EXEC_TOUCH_VVWAP => hasCrossed(vwapValue)    // Tested 
+                // // If in value (low < value)
+                // // else if below value (high > value)
+                PVA_LOW_TEST => 
+                    if isInPreviousValue()
+                        low < getFinalLevel(prevDVALValue, LONG)
+                    else 
+                        high > getFinalLevel(prevDVALValue, SHORT)
+                PVA_HIGH_TEST => 
+                    if isInPreviousValue()
+                        high > getFinalLevel(prevDVAHValue, SHORT)
+                    else
+                        low < getFinalLevel(prevDVAHValue, LONG)
+                PVA_VWAP_TEST => hasCrossed(prevVWAPValue)
+                => false
+
+            // @debug only: comment out all but one simple alert and test visually condition is being met
+            // if state.isTriggered
+            //     bgColor := setCandleBg(customAlert.id, 2)
+
+
+        else if customAlert.id == IMBALANCED_UP
+            imbalanced_long(state.sequenceState)
+            // bgColor := setCandleBg(customAlert.id, state.sequenceState.currentStep)      // Only for debug atm
+            state.isTriggered := state.sequenceState.currentStep == customAlert.sequenceSteps
+            if state.isTriggered
+                state.sequenceState.currentStep := 0  
+
+        else if customAlert.id == IMBALANCED_DOWN
+            imbalanced_short(state.sequenceState)
+            // bgColor := setCandleBg(customAlert.id, state.sequenceState.currentStep)      // Only for debug atm
+            state.isTriggered := state.sequenceState.currentStep == customAlert.sequenceSteps
+            if state.isTriggered
+                state.sequenceState.currentStep := 0  
+
+        else if customAlert.id == FAILED_AUCTION_LOWER 
+            failed_auction_lower(state.sequenceState)
+            // bgColor := setCandleBg(customAlert.id, state.sequenceState.currentStep)      // Only for debug atm
+            state.isTriggered := state.sequenceState.currentStep == customAlert.sequenceSteps
+            if state.isTriggered
+                state.sequenceState.currentStep := 0  
+
+        // Failed auction higher
+        else if customAlert.id ==  FAILED_AUCTION_HIGHER
+            failed_auction_higher(state.sequenceState)
+            // bgColor := setCandleBg(customAlert.id, state.sequenceState.currentStep)         // Only for debug atm
+            state.isTriggered := state.sequenceState.currentStep == customAlert.sequenceSteps
+            if state.isTriggered
+                state.sequenceState.currentStep := 0
+
+        else if customAlert.id ==  PVA_BPB
+            pva_breakout_pullback(state.sequenceState)
+            // bgColor := setCandleBg(customAlert.id, state.sequenceState.currentStep)         // Only for debug atm
+            state.isTriggered := state.sequenceState.currentStep == customAlert.sequenceSteps
+            if state.isTriggered
+                state.sequenceState.currentStep := 0
+
+
+        array.set(alertTriggers, i, state.isTriggered)
+
+bgcolor(bgColor)
+
+// Whatever alerts you declare and push to customAlerts, need an alert condition
+// @dev - Couldn't get round alertCondition title and message needing to be const so no dyanmic message <- If know how please heads up 
+alertcondition(array.get(alertTriggers, 0), title="> Fade DVAL", message="Rotational : Fade developing value area low")
+alertcondition(array.get(alertTriggers, 1), title="> Test WWAP", message="Test of VWAP")
+alertcondition(array.get(alertTriggers, 2), title="> Fade DVAH", message="Rotational : Fade devloping value area high")
+
+alertcondition(array.get(alertTriggers, 3), title="# Fail to auction lower", message="Long Developing : Fail to auction lower")
+alertcondition(array.get(alertTriggers, 4), title="# Imbalanced pullback long", message="IBP Long : Pullback to DVAH")
+alertcondition(array.get(alertTriggers, 5), title="# Fail to auction higher", message="Short Developing : Fail to auction higher")
+alertcondition(array.get(alertTriggers, 6), title="# Imbalanced Pullback short", message="IPB Short : Pullback to DVAL")
+
+alertcondition(array.get(alertTriggers, 7), title="@ PVA Low Test", message="Rotational : Previous Value Low Tested")
+alertcondition(array.get(alertTriggers, 8), title="@ PVA High Test", message="Rotational : Previous Value High Tested")
+alertcondition(array.get(alertTriggers, 8), title="@ PVA VWAP Test", message="Previous Value Area VWAP Retest")
